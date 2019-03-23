@@ -23,8 +23,8 @@ let strategy:DsStrategy = .maxValue
 //
 // MARK: - Accelerate Framework selection
 //
-let useAccelForDs = false
 let useAccelForMerge = false
+let useAccelForDs = true
 let useAccelForPeakCalc = false
 let useAccelForBuildPoints = false
 
@@ -297,6 +297,11 @@ class Sampler: NSObject {
                 //
                 // Insert Accelerate downsample code here
                 //
+
+                for idx in 0..<Int(frameBuffer.frameLength / UInt32(dsFactor)) {
+                    vDSP_maxmgv(fcd[0] + (idx * Int(dsFactor)), 1, fcd[0] + idx, vDSP_Length(dsFactor))
+                    vDSP_maxmgv(fcd[1] + (idx * Int(dsFactor)), 1, fcd[1] + idx, vDSP_Length(dsFactor))
+                }
 
             }
         case (.avgValue, false):
