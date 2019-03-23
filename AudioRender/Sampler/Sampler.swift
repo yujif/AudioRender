@@ -23,15 +23,15 @@ let strategy:DsStrategy = .maxValue
 //
 // MARK: - Accelerate Framework selection
 //
-let useAccelForDs = false
-let useAccelForMerge = false
+let useAccelForDs = true
+let useAccelForMerge = true
 let useAccelForPeakCalc = false
-let useAccelForBuildPoints = false
+let useAccelForBuildPoints = true
 
 //
 // Multi-reader
 //
-let useMultiReader                = false
+let useMultiReader                = true
 // Make sure that the block size is an integer multiple of default downsample factor
 // Ideally, both should be powers of 2
 let kBlockSize                  = AVAudioFrameCount(524288)     // 2**19
@@ -298,6 +298,11 @@ class Sampler: NSObject {
                 // Insert Accelerate downsample code here
                 //
 
+                for idx in 0..<Int(frameBuffer.frameLength / UInt32(dsFactor)) {
+                    vDSP_maxmgv(fcd[0] + (idx * Int(dsFactor)), 1, fcd[0] + idx, vDSP_Length(dsFactor))
+                    vDSP_maxmgv(fcd[1] + (idx * Int(dsFactor)), 1, fcd[1] + idx, vDSP_Length(dsFactor))
+                }
+
             }
         case (.avgValue, false):
             timing(index: index, key: "downsample", comment: "", stats: timeStats) {
@@ -357,6 +362,8 @@ class Sampler: NSObject {
                     //
                     // Insert Accelerate merge code here
                     //
+                    var avg: Float = 0.5
+                    vDSP_vasm(fcd[0], 1, fcd[1], 1, &avg, sfd, 1, vDSP_Length(frameLength))
                 }
             }
             sampleBuffer.frameLength = frameLength
@@ -403,6 +410,35 @@ class Sampler: NSObject {
                 //
                 // Insert Accelerate build point array code here
                 //
+                ptArray.withUnsafeBufferPointer { buffer in
+                    guard let bp = buffer.baseAddress else { return }
+                    let doublePrt = UnsafeMutableRawPointer(mutating: bp).bindMemory(to: Double.self, capacity: Int(sampleBuffer.frameLength) * 2)
+                    var startValue: Double = 0.0
+                    var incrBy: Double = 1.0
+
+                    // The reason why sampleBuffer.frameLength is multiplied by 4
+
+                    // sampleBuffer: [CGFloat] --------  [0|1|……………………|N]
+                    // pointArray: [CGPoint] ----------  [x0|y0|x1|y1|………………………………|xN|yN|yN|xN|………………………………|y1|x1|y0|x0]
+                    //                                                                  ↑ half of array                ↑ 4 times of sampleBuffer.frameLength
+
+                    vDSP_vrampD(&startValue, &incrBy, doublePrt, 2, vDSP_Length(sampleBuffer.frameLength))
+                    vDSP_vrampD(&startValue,
+                                &incrBy,
+                                doublePrt + Int(sampleBuffer.frameLength) * 4 - 2, // Single-precision real output vector
+                                -2, // Address stride -2 for x, y values
+                                vDSP_Length(sampleBuffer.frameLength)
+                    )
+                    vDSP_vspdp(fd, 1, doublePrt + 1, 2, vDSP_Length(sampleBuffer.frameLength))
+
+                    vDSP_vneg(fd, 1, fd, 1, vDSP_Length(sampleBuffer.frameLength))
+                    vDSP_vspdp(fd,
+                               1,
+                               doublePrt + Int(sampleBuffer.frameLength) * 4 - 1,
+                               -2,
+                               vDSP_Length(sampleBuffer.frameLength)
+                    )
+                }
             }
         }
         sampleBuffer.points = ptArray
