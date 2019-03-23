@@ -26,7 +26,7 @@ let strategy:DsStrategy = .maxValue
 let useAccelForDs = true
 let useAccelForMerge = true
 let useAccelForPeakCalc = false
-let useAccelForBuildPoints = false
+let useAccelForBuildPoints = true
 
 //
 // Multi-reader
@@ -410,6 +410,35 @@ class Sampler: NSObject {
                 //
                 // Insert Accelerate build point array code here
                 //
+                ptArray.withUnsafeBufferPointer { buffer in
+                    guard let bp = buffer.baseAddress else { return }
+                    let doublePrt = UnsafeMutableRawPointer(mutating: bp).bindMemory(to: Double.self, capacity: Int(sampleBuffer.frameLength) * 2)
+                    var startValue: Double = 0.0
+                    var incrBy: Double = 1.0
+
+                    // The reason why sampleBuffer.frameLength is multiplied by 4
+
+                    // sampleBuffer: [CGFloat] --------  [0|1|……………………|N]
+                    // pointArray: [CGPoint] ----------  [x0|y0|x1|y1|………………………………|xN|yN|yN|xN|………………………………|y1|x1|y0|x0]
+                    //                                                                  ↑ half of array                ↑ 4 times of sampleBuffer.frameLength
+
+                    vDSP_vrampD(&startValue, &incrBy, doublePrt, 2, vDSP_Length(sampleBuffer.frameLength))
+                    vDSP_vrampD(&startValue,
+                                &incrBy,
+                                doublePrt + Int(sampleBuffer.frameLength) * 4 - 2, // Single-precision real output vector
+                                -2, // Address stride -2 for x, y values
+                                vDSP_Length(sampleBuffer.frameLength)
+                    )
+                    vDSP_vspdp(fd, 1, doublePrt + 1, 2, vDSP_Length(sampleBuffer.frameLength))
+
+                    vDSP_vneg(fd, 1, fd, 1, vDSP_Length(sampleBuffer.frameLength))
+                    vDSP_vspdp(fd,
+                               1,
+                               doublePrt + Int(sampleBuffer.frameLength) * 4 - 1,
+                               -2,
+                               vDSP_Length(sampleBuffer.frameLength)
+                    )
+                }
             }
         }
         sampleBuffer.points = ptArray
