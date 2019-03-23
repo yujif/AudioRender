@@ -31,7 +31,7 @@ let useAccelForBuildPoints = true
 //
 // Multi-reader
 //
-let useMultiReader                = false
+let useMultiReader                = true
 // Make sure that the block size is an integer multiple of default downsample factor
 // Ideally, both should be powers of 2
 let kBlockSize                  = AVAudioFrameCount(524288)     // 2**19
